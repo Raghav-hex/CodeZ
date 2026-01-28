@@ -1,0 +1,557 @@
+import React, { useState, useEffect, useRef } from 'react';
+import Editor from '@monaco-editor/react';
+
+const LANGUAGES = {
+  cpp: {
+    name: 'C++',
+    monacoLang: 'cpp',
+    defaultCode: `#include <iostream>
+using namespace std;
+
+int main() {
+    cout << "Hello, World!" << endl;
+    return 0;
+}`,
+    icon: '⚙️'
+  },
+  java: {
+    name: 'Java',
+    monacoLang: 'java',
+    defaultCode: `public class Main {
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+    }
+}`,
+    icon: '☕'
+  },
+  python: {
+    name: 'Python',
+    monacoLang: 'python',
+    defaultCode: `print("Hello, World!")`,
+    icon: '🐍'
+  },
+  javascript: {
+    name: 'JavaScript',
+    monacoLang: 'javascript',
+    defaultCode: `console.log("Hello, World!");`,
+    icon: '⚡'
+  }
+};
+
+const API_URL = 'http://localhost:3001';
+
+export default function CodeCompiler() {
+  const [language, setLanguage] = useState('python');
+  const [code, setCode] = useState(LANGUAGES.python.defaultCode);
+  const [input, setInput] = useState('');
+  const [output, setOutput] = useState('');
+  const [isRunning, setIsRunning] = useState(false);
+  const [theme, setTheme] = useState('dark');
+  const editorRef = useRef(null);
+
+  useEffect(() => {
+    setCode(LANGUAGES[language].defaultCode);
+    setOutput('');
+  }, [language]);
+
+  const handleEditorDidMount = (editor) => {
+    editorRef.current = editor;
+  };
+
+  const runCode = async () => {
+    setIsRunning(true);
+    setOutput('Running...');
+    
+    try {
+      const response = await fetch(`${API_URL}/execute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          language,
+          code,
+          input
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.error) {
+        setOutput(`ERROR:\n${result.error}`);
+      } else {
+        let outputText = '';
+        if (result.output) outputText += result.output;
+        if (result.stderr) outputText += `\nSTDERR:\n${result.stderr}`;
+        if (result.executionTime) outputText += `\n\n⏱️ Execution time: ${result.executionTime}ms`;
+        setOutput(outputText || 'Program executed successfully with no output.');
+      }
+    } catch (error) {
+      setOutput(`NETWORK ERROR:\n${error.message}\n\nMake sure the backend server is running on port 3001.`);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const clearOutput = () => {
+    setOutput('');
+    setInput('');
+  };
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: theme === 'dark' 
+        ? 'linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%)'
+        : 'linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%)',
+      fontFamily: '"JetBrains Mono", "Courier New", monospace',
+      color: theme === 'dark' ? '#e1e8f0' : '#2d3748',
+      padding: '0',
+      margin: '0',
+      transition: 'all 0.3s ease'
+    }}>
+      {/* Header */}
+      <header style={{
+        background: theme === 'dark' 
+          ? 'rgba(10, 14, 39, 0.95)'
+          : 'rgba(255, 255, 255, 0.95)',
+        backdropFilter: 'blur(10px)',
+        borderBottom: theme === 'dark' 
+          ? '2px solid #00d9ff'
+          : '2px solid #3182ce',
+        padding: '1rem 2rem',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+        boxShadow: theme === 'dark'
+          ? '0 4px 20px rgba(0, 217, 255, 0.1)'
+          : '0 4px 20px rgba(49, 130, 206, 0.1)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <h1 style={{
+            margin: 0,
+            fontSize: '1.8rem',
+            fontWeight: 900,
+            letterSpacing: '-0.02em',
+            background: theme === 'dark'
+              ? 'linear-gradient(135deg, #00d9ff 0%, #00ff88 100%)'
+              : 'linear-gradient(135deg, #3182ce 0%, #2c5282 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            textTransform: 'uppercase'
+          }}>
+            {'<CODEX/>'}
+          </h1>
+          <span style={{
+            fontSize: '0.75rem',
+            opacity: 0.6,
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em'
+          }}>
+            Online Compiler
+          </span>
+        </div>
+        
+        <button
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          style={{
+            background: 'transparent',
+            border: theme === 'dark' 
+              ? '1px solid #00d9ff'
+              : '1px solid #3182ce',
+            color: theme === 'dark' ? '#00d9ff' : '#3182ce',
+            padding: '0.5rem 1rem',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '0.9rem',
+            fontFamily: 'inherit',
+            transition: 'all 0.2s',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            fontWeight: 600
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.background = theme === 'dark' ? '#00d9ff' : '#3182ce';
+            e.target.style.color = theme === 'dark' ? '#0a0e27' : '#ffffff';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = 'transparent';
+            e.target.style.color = theme === 'dark' ? '#00d9ff' : '#3182ce';
+          }}
+        >
+          {theme === 'dark' ? '☀️' : '🌙'} {theme === 'dark' ? 'Light' : 'Dark'}
+        </button>
+      </header>
+
+      {/* Main Content */}
+      <div style={{
+        padding: '2rem',
+        maxWidth: '1800px',
+        margin: '0 auto'
+      }}>
+        {/* Language Selector */}
+        <div style={{
+          display: 'flex',
+          gap: '1rem',
+          marginBottom: '2rem',
+          flexWrap: 'wrap'
+        }}>
+          {Object.entries(LANGUAGES).map(([key, lang]) => (
+            <button
+              key={key}
+              onClick={() => setLanguage(key)}
+              style={{
+                background: language === key
+                  ? (theme === 'dark' 
+                    ? 'linear-gradient(135deg, #00d9ff 0%, #00ff88 100%)'
+                    : 'linear-gradient(135deg, #3182ce 0%, #2c5282 100%)')
+                  : (theme === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'),
+                border: language === key
+                  ? 'none'
+                  : (theme === 'dark' ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)'),
+                color: language === key 
+                  ? (theme === 'dark' ? '#0a0e27' : '#ffffff')
+                  : (theme === 'dark' ? '#e1e8f0' : '#2d3748'),
+                padding: '0.75rem 1.5rem',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                fontFamily: 'inherit',
+                fontWeight: language === key ? 700 : 500,
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                boxShadow: language === key
+                  ? (theme === 'dark' 
+                    ? '0 4px 15px rgba(0, 217, 255, 0.3)'
+                    : '0 4px 15px rgba(49, 130, 206, 0.3)')
+                  : 'none'
+              }}
+              onMouseEnter={(e) => {
+                if (language !== key) {
+                  e.target.style.background = theme === 'dark' 
+                    ? 'rgba(255, 255, 255, 0.1)' 
+                    : 'rgba(0, 0, 0, 0.1)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (language !== key) {
+                  e.target.style.background = theme === 'dark' 
+                    ? 'rgba(255, 255, 255, 0.05)' 
+                    : 'rgba(0, 0, 0, 0.05)';
+                }
+              }}
+            >
+              <span style={{ fontSize: '1.2rem' }}>{lang.icon}</span>
+              {lang.name}
+            </button>
+          ))}
+        </div>
+
+        {/* Editor and Output Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '2rem',
+          marginBottom: '2rem'
+        }}>
+          {/* Editor Panel */}
+          <div style={{
+            background: theme === 'dark' ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.9)',
+            borderRadius: '8px',
+            overflow: 'hidden',
+            border: theme === 'dark' 
+              ? '1px solid rgba(0, 217, 255, 0.2)'
+              : '1px solid rgba(49, 130, 206, 0.2)',
+            boxShadow: theme === 'dark'
+              ? '0 8px 32px rgba(0, 0, 0, 0.3)'
+              : '0 8px 32px rgba(0, 0, 0, 0.1)'
+          }}>
+            <div style={{
+              background: theme === 'dark' 
+                ? 'linear-gradient(90deg, rgba(0, 217, 255, 0.1) 0%, rgba(0, 255, 136, 0.1) 100%)'
+                : 'linear-gradient(90deg, rgba(49, 130, 206, 0.1) 0%, rgba(44, 82, 130, 0.1) 100%)',
+              padding: '0.75rem 1.5rem',
+              borderBottom: theme === 'dark' 
+                ? '1px solid rgba(0, 217, 255, 0.2)'
+                : '1px solid rgba(49, 130, 206, 0.2)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <span style={{
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.1em',
+                fontSize: '0.85rem',
+                color: theme === 'dark' ? '#00d9ff' : '#3182ce'
+              }}>
+                Code Editor
+              </span>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{
+                  width: '12px',
+                  height: '12px',
+                  borderRadius: '50%',
+                  background: '#ff5f56'
+                }} />
+                <div style={{
+                  width: '12px',
+                  height: '12px',
+                  borderRadius: '50%',
+                  background: '#ffbd2e'
+                }} />
+                <div style={{
+                  width: '12px',
+                  height: '12px',
+                  borderRadius: '50%',
+                  background: '#27c93f'
+                }} />
+              </div>
+            </div>
+            <div style={{ height: '500px' }}>
+              <Editor
+                height="100%"
+                language={LANGUAGES[language].monacoLang}
+                value={code}
+                onChange={(value) => setCode(value || '')}
+                onMount={handleEditorDidMount}
+                theme={theme === 'dark' ? 'vs-dark' : 'light'}
+                options={{
+                  fontSize: 14,
+                  minimap: { enabled: false },
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  automaticLayout: true,
+                  tabSize: 4,
+                  fontFamily: '"JetBrains Mono", "Courier New", monospace',
+                  fontLigatures: true,
+                  cursorBlinking: 'smooth',
+                  smoothScrolling: true
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Output Panel */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem'
+          }}>
+            {/* Input Section */}
+            <div style={{
+              background: theme === 'dark' ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.9)',
+              borderRadius: '8px',
+              overflow: 'hidden',
+              border: theme === 'dark' 
+                ? '1px solid rgba(0, 217, 255, 0.2)'
+                : '1px solid rgba(49, 130, 206, 0.2)',
+              boxShadow: theme === 'dark'
+                ? '0 8px 32px rgba(0, 0, 0, 0.3)'
+                : '0 8px 32px rgba(0, 0, 0, 0.1)'
+            }}>
+              <div style={{
+                background: theme === 'dark' 
+                  ? 'linear-gradient(90deg, rgba(255, 184, 0, 0.1) 0%, rgba(255, 136, 0, 0.1) 100%)'
+                  : 'linear-gradient(90deg, rgba(237, 137, 54, 0.1) 0%, rgba(245, 101, 101, 0.1) 100%)',
+                padding: '0.75rem 1.5rem',
+                borderBottom: theme === 'dark' 
+                  ? '1px solid rgba(255, 184, 0, 0.2)'
+                  : '1px solid rgba(237, 137, 54, 0.2)'
+              }}>
+                <span style={{
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  fontSize: '0.85rem',
+                  color: theme === 'dark' ? '#ffb800' : '#ed8936'
+                }}>
+                  Input (stdin)
+                </span>
+              </div>
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Enter program input here..."
+                style={{
+                  width: '100%',
+                  height: '120px',
+                  padding: '1rem',
+                  background: theme === 'dark' ? '#1a1f3a' : '#ffffff',
+                  color: theme === 'dark' ? '#e1e8f0' : '#2d3748',
+                  border: 'none',
+                  fontFamily: 'inherit',
+                  fontSize: '0.95rem',
+                  resize: 'none',
+                  outline: 'none'
+                }}
+              />
+            </div>
+
+            {/* Output Section */}
+            <div style={{
+              background: theme === 'dark' ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.9)',
+              borderRadius: '8px',
+              overflow: 'hidden',
+              border: theme === 'dark' 
+                ? '1px solid rgba(0, 217, 255, 0.2)'
+                : '1px solid rgba(49, 130, 206, 0.2)',
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: theme === 'dark'
+                ? '0 8px 32px rgba(0, 0, 0, 0.3)'
+                : '0 8px 32px rgba(0, 0, 0, 0.1)'
+            }}>
+              <div style={{
+                background: theme === 'dark' 
+                  ? 'linear-gradient(90deg, rgba(0, 255, 136, 0.1) 0%, rgba(0, 217, 255, 0.1) 100%)'
+                  : 'linear-gradient(90deg, rgba(72, 187, 120, 0.1) 0%, rgba(49, 130, 206, 0.1) 100%)',
+                padding: '0.75rem 1.5rem',
+                borderBottom: theme === 'dark' 
+                  ? '1px solid rgba(0, 255, 136, 0.2)'
+                  : '1px solid rgba(72, 187, 120, 0.2)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <span style={{
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  fontSize: '0.85rem',
+                  color: theme === 'dark' ? '#00ff88' : '#48bb78'
+                }}>
+                  Output
+                </span>
+                <button
+                  onClick={clearOutput}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: theme === 'dark' ? '#e1e8f0' : '#2d3748',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                    padding: '0.25rem 0.5rem',
+                    opacity: 0.6,
+                    transition: 'opacity 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.target.style.opacity = '1'}
+                  onMouseLeave={(e) => e.target.style.opacity = '0.6'}
+                >
+                  Clear
+                </button>
+              </div>
+              <pre style={{
+                flex: 1,
+                padding: '1rem',
+                margin: 0,
+                background: theme === 'dark' ? '#1a1f3a' : '#ffffff',
+                color: theme === 'dark' ? '#e1e8f0' : '#2d3748',
+                overflow: 'auto',
+                fontFamily: 'inherit',
+                fontSize: '0.95rem',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word'
+              }}>
+                {output || 'Output will appear here after running your code...'}
+              </pre>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div style={{
+          display: 'flex',
+          gap: '1rem',
+          justifyContent: 'center'
+        }}>
+          <button
+            onClick={runCode}
+            disabled={isRunning}
+            style={{
+              background: isRunning
+                ? (theme === 'dark' ? 'rgba(0, 217, 255, 0.2)' : 'rgba(49, 130, 206, 0.2)')
+                : (theme === 'dark' 
+                  ? 'linear-gradient(135deg, #00d9ff 0%, #00ff88 100%)'
+                  : 'linear-gradient(135deg, #3182ce 0%, #2c5282 100%)'),
+              border: 'none',
+              color: theme === 'dark' ? '#0a0e27' : '#ffffff',
+              padding: '1rem 3rem',
+              borderRadius: '6px',
+              cursor: isRunning ? 'not-allowed' : 'pointer',
+              fontSize: '1.1rem',
+              fontFamily: 'inherit',
+              fontWeight: 700,
+              transition: 'all 0.3s',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              boxShadow: isRunning
+                ? 'none'
+                : (theme === 'dark'
+                  ? '0 8px 24px rgba(0, 217, 255, 0.4)'
+                  : '0 8px 24px rgba(49, 130, 206, 0.4)'),
+              transform: isRunning ? 'scale(0.98)' : 'scale(1)',
+              opacity: isRunning ? 0.6 : 1
+            }}
+            onMouseEnter={(e) => {
+              if (!isRunning) {
+                e.target.style.transform = 'scale(1.05)';
+                e.target.style.boxShadow = theme === 'dark'
+                  ? '0 12px 32px rgba(0, 217, 255, 0.5)'
+                  : '0 12px 32px rgba(49, 130, 206, 0.5)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isRunning) {
+                e.target.style.transform = 'scale(1)';
+                e.target.style.boxShadow = theme === 'dark'
+                  ? '0 8px 24px rgba(0, 217, 255, 0.4)'
+                  : '0 8px 24px rgba(49, 130, 206, 0.4)';
+              }
+            }}
+          >
+            {isRunning ? '⏳ Running...' : '▶️ Run Code'}
+          </button>
+        </div>
+
+        {/* Info Footer */}
+        <div style={{
+          marginTop: '3rem',
+          padding: '2rem',
+          background: theme === 'dark' 
+            ? 'rgba(255, 255, 255, 0.02)'
+            : 'rgba(0, 0, 0, 0.02)',
+          borderRadius: '8px',
+          border: theme === 'dark' 
+            ? '1px solid rgba(255, 255, 255, 0.05)'
+            : '1px solid rgba(0, 0, 0, 0.05)',
+          textAlign: 'center'
+        }}>
+          <p style={{
+            margin: '0 0 0.5rem 0',
+            fontSize: '0.9rem',
+            opacity: 0.7
+          }}>
+            Secure sandboxed execution • Real-time compilation • Multi-language support
+          </p>
+          <p style={{
+            margin: 0,
+            fontSize: '0.8rem',
+            opacity: 0.5,
+            letterSpacing: '0.05em'
+          }}>
+            Powered by Docker containers and Monaco Editor
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
