@@ -6,11 +6,17 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001; // Render uses dynamic PORT
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
 
 // Create temp directory for code execution
 const TEMP_DIR = path.join(__dirname, 'temp');
@@ -19,9 +25,9 @@ const TEMP_DIR = path.join(__dirname, 'temp');
 (async () => {
   try {
     await fs.mkdir(TEMP_DIR, { recursive: true });
-    console.log('Temp directory created/verified');
+    console.log('✅ Temp directory created/verified');
   } catch (error) {
-    console.error('Error creating temp directory:', error);
+    console.error('❌ Error creating temp directory:', error);
   }
 })();
 
@@ -53,7 +59,7 @@ const LANGUAGE_CONFIG = {
   }
 };
 
-// Cleanup old files (run every 5 minutes)
+// Cleanup old files
 setInterval(async () => {
   try {
     const files = await fs.readdir(TEMP_DIR);
@@ -61,39 +67,30 @@ setInterval(async () => {
     
     for (const file of files) {
       const filePath = path.join(TEMP_DIR, file);
-      const stats = await fs.stat(filePath);
-      const age = now - stats.mtimeMs;
-      
-      // Delete files older than 10 minutes
-      if (age > 10 * 60 * 1000) {
-        await fs.unlink(filePath);
-        console.log(`Cleaned up old file: ${file}`);
-      }
+      try {
+        const stats = await fs.stat(filePath);
+        if (now - stats.mtimeMs > 10 * 60 * 1000) {
+          await fs.unlink(filePath);
+          console.log(`🧹 Cleaned: ${file}`);
+        }
+      } catch (err) {}
     }
-  } catch (error) {
-    console.error('Error during cleanup:', error);
-  }
+  } catch (error) {}
 }, 5 * 60 * 1000);
 
-// Execute code in a safe manner
+// Execute code
 async function executeCode(language, code, input) {
   const config = LANGUAGE_CONFIG[language];
-  if (!config) {
-    throw new Error('Unsupported language');
-  }
+  if (!config) throw new Error('Unsupported language');
 
-  // Generate unique ID for this execution
   const id = uuidv4();
   const workDir = path.join(TEMP_DIR, id);
   
   try {
-    // Create work directory
     await fs.mkdir(workDir, { recursive: true });
     
-    // Determine filename
     let filename;
     if (language === 'java') {
-      // Extract class name from Java code
       const classMatch = code.match(/public\s+class\s+(\w+)/);
       filename = classMatch ? `${classMatch[1]}.${config.extension}` : `Main.${config.extension}`;
     } else {
@@ -101,21 +98,15 @@ async function executeCode(language, code, input) {
     }
     
     const filePath = path.join(workDir, filename);
-    
-    // Write code to file
     await fs.writeFile(filePath, code);
     
-    // Write input to file
     const inputPath = path.join(workDir, 'input.txt');
     await fs.writeFile(inputPath, input || '');
     
     const startTime = Date.now();
     
-    // Compile if needed
     if (config.compile) {
-      const compileCommand = config.compile(filename);
-      const compileResult = await executeCommand(compileCommand, workDir, config.timeout);
-      
+      const compileResult = await executeCommand(config.compile(filename), workDir, config.timeout);
       if (compileResult.error) {
         return {
           error: compileResult.stderr || compileResult.error,
@@ -124,13 +115,10 @@ async function executeCode(language, code, input) {
       }
     }
     
-    // Run the program
     const runCommand = `${config.run(filename)} < input.txt`;
     const runResult = await executeCommand(runCommand, workDir, config.timeout);
-    
     const executionTime = Date.now() - startTime;
     
-    // Clean up
     await cleanupDirectory(workDir);
     
     return {
@@ -139,133 +127,91 @@ async function executeCode(language, code, input) {
       error: runResult.error,
       executionTime
     };
-    
   } catch (error) {
-    // Clean up on error
-    try {
-      await cleanupDirectory(workDir);
-    } catch (cleanupError) {
-      console.error('Cleanup error:', cleanupError);
-    }
-    
+    try { await cleanupDirectory(workDir); } catch (e) {}
     throw error;
   }
 }
 
-// Execute a command with timeout
 function executeCommand(command, cwd, timeout) {
   return new Promise((resolve) => {
-    const process = exec(
-      command,
-      {
-        cwd,
-        timeout,
-        maxBuffer: 1024 * 1024 * 10, // 10MB buffer
-        killSignal: 'SIGTERM'
-      },
+    const process = exec(command, { cwd, timeout, maxBuffer: 10485760, killSignal: 'SIGTERM' },
       (error, stdout, stderr) => {
         if (error) {
-          if (error.killed) {
-            resolve({
-              error: 'Execution timed out. Your program took too long to execute.',
-              stdout: stdout,
-              stderr: stderr
-            });
-          } else {
-            resolve({
-              error: error.message,
-              stdout: stdout,
-              stderr: stderr
-            });
-          }
-        } else {
           resolve({
-            stdout: stdout,
-            stderr: stderr,
-            error: null
+            error: error.killed ? 'Execution timed out' : error.message,
+            stdout, stderr
           });
+        } else {
+          resolve({ stdout, stderr, error: null });
         }
       }
     );
   });
 }
 
-// Clean up directory
 async function cleanupDirectory(dir) {
   try {
     const files = await fs.readdir(dir);
-    for (const file of files) {
-      await fs.unlink(path.join(dir, file));
-    }
+    for (const file of files) await fs.unlink(path.join(dir, file));
     await fs.rmdir(dir);
-  } catch (error) {
-    console.error('Error cleaning up directory:', error);
-  }
+  } catch (error) {}
 }
 
-// API endpoint to execute code
+// Routes
+app.get('/', (req, res) => {
+  res.json({
+    message: '🚀 CODEX Compiler API',
+    status: 'running',
+    endpoints: { execute: 'POST /execute', health: 'GET /health' },
+    supportedLanguages: Object.keys(LANGUAGE_CONFIG)
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    supportedLanguages: Object.keys(LANGUAGE_CONFIG)
+  });
+});
+
 app.post('/execute', async (req, res) => {
   try {
     const { language, code, input } = req.body;
     
-    // Validation
     if (!language || !code) {
-      return res.status(400).json({
-        error: 'Missing required fields: language and code'
-      });
+      return res.status(400).json({ error: 'Missing required fields: language and code' });
     }
     
     if (!LANGUAGE_CONFIG[language]) {
-      return res.status(400).json({
-        error: `Unsupported language: ${language}`
-      });
+      return res.status(400).json({ error: `Unsupported language: ${language}` });
     }
     
-    // Code length limit (1MB)
-    if (code.length > 1024 * 1024) {
-      return res.status(400).json({
-        error: 'Code size exceeds limit (1MB)'
-      });
+    if (code.length > 1048576) {
+      return res.status(400).json({ error: 'Code size exceeds limit (1MB)' });
     }
     
-    console.log(`Executing ${language} code...`);
-    
-    // Execute the code
+    console.log(`⚡ Executing ${language} code...`);
     const result = await executeCode(language, code, input || '');
-    
     res.json(result);
-    
   } catch (error) {
-    console.error('Execution error:', error);
-    res.status(500).json({
-      error: error.message || 'Internal server error'
-    });
+    console.error('❌ Error:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    supportedLanguages: Object.keys(LANGUAGE_CONFIG),
-    timestamp: new Date().toISOString()
-  });
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
-// Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Code execution server running on port ${PORT}`);
-  console.log(`📝 Supported languages: ${Object.keys(LANGUAGE_CONFIG).join(', ')}`);
-  console.log(`📂 Temp directory: ${TEMP_DIR}`);
+  console.log(`\n🚀 CODEZ Compiler running on port ${PORT}`);
+  console.log(`📝 Languages: ${Object.keys(LANGUAGE_CONFIG).join(', ')}\n`);
 });
 
-// Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, cleaning up...');
-  try {
-    await cleanupDirectory(TEMP_DIR);
-  } catch (error) {
-    console.error('Error during cleanup:', error);
-  }
+  console.log('\n🛑 Shutting down...');
   process.exit(0);
 });
